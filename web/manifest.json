@@ -1,11 +1,11 @@
 {
-    "name": "uno_stack_game",
-    "short_name": "uno_stack_game",
+    "name": "Raíz cuadrada de 1",
+    "short_name": "squareroot1",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",
     "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "description": "UNO multijugador en tiempo real con Flutter y Firebase.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

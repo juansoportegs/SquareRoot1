@@ -11,16 +11,16 @@ void main() async {
     options: DefaultFirebaseOptions.currentPlatform,
   );
 
-  runApp(const UnoStackGameApp());
+  runApp(const SquareRoot1App());
 }
 
-class UnoStackGameApp extends StatelessWidget {
-  const UnoStackGameApp({super.key});
+class SquareRoot1App extends StatelessWidget {
+  const SquareRoot1App({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Uno Stack Game',
+      title: 'Raíz cuadrada de 1',
       theme: ThemeData(
         primarySwatch: Colors.blue,
         useMaterial3: true,

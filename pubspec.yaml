@@ -1,5 +1,5 @@
-name: uno_stack
-description: "Un juego de UNO multijugador en tiempo real con Flutter y Firebase."
+name: squareroot1
+description: "Raíz cuadrada de 1: un juego de UNO multijugador en tiempo real con Flutter y Firebase."
 publish_to: 'none'
 
 version: 1.0.0+1

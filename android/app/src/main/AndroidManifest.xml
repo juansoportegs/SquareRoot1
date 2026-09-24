@@ -1,6 +1,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <application
-        android:label="Raiz cuadrada de 1"
+        android:label="Raíz cuadrada de 1"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity
