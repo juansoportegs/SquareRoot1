@@ -37,4 +37,35 @@ class InvitationService {
       return false;
     }
   }
+
+  Future<bool> sendGameInvitationByNick(String nick, String roomCode) async {
+    try {
+      User? currentUser = FirebaseAuth.instance.currentUser;
+      if (currentUser == null) return false;
+
+      String normalizedNick = AuthService.normalizeNick(nick);
+      if (normalizedNick.isEmpty) return false;
+
+      // El nick único resuelve al safeKey del usuario desde el índice nicks/
+      DataSnapshot nickSnapshot = await _dbRef.child('nicks/$normalizedNick').get();
+      if (!nickSnapshot.exists || nickSnapshot.value == null) {
+        debugPrint('El nick no existe: $nick');
+        return false;
+      }
+
+      String safeTargetKey = (nickSnapshot.value as String);
+      String senderName = currentUser.displayName ?? 'Un jugador';
+
+      await _dbRef.child('invitations/$safeTargetKey').set({
+        'senderName': senderName,
+        'roomCode': roomCode,
+        'timestamp': ServerValue.timestamp,
+      });
+
+      return true;
+    } catch (e) {
+      debugPrint('Error al enviar la invitación por nick: $e');
+      return false;
+    }
+  }
 }

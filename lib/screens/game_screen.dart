@@ -36,6 +36,7 @@ class _GameScreenState extends State<GameScreen> {
 
   Timer? _unoTimer;
   int _unoSecondsRemaining = 10;
+  int _accusedDrawnCount = 2;
   bool _hasShownWinDialog = false;
 
   bool _hasDrawnThisTurn = false;
@@ -174,11 +175,15 @@ class _GameScreenState extends State<GameScreen> {
       time: timeNow,
     );
 
-    final updatedMessages = List<ChatMessage>.from(_currentRoom!.messages)..add(newMsg);
-
-    await _dbRef.child(_cleanRoomCode).child('messages').set(
-          updatedMessages.map((m) => m.toJson()).toList(),
-        );
+    await _dbRef.child(_cleanRoomCode).child('messages').runTransaction((current) {
+      final List<dynamic> rawList = current is List ? List<dynamic>.from(current) : <dynamic>[];
+      final List<Map<String, dynamic>> safeList = rawList
+          .whereType<Map>()
+          .map((m) => Map<String, dynamic>.from(m))
+          .toList();
+      safeList.add(newMsg.toJson());
+      return Transaction.success(safeList);
+    });
   }
 
   Widget _buildChatWidget({double height = 170}) {
@@ -381,7 +386,7 @@ class _GameScreenState extends State<GameScreen> {
       pendingDrawCount: 0,
       isClockwise: true,
       scores: _currentRoom!.scores,
-      messages: _currentRoom!.messages,
+      messages: [],
     );
 
     await _dbRef.child(_cleanRoomCode).set(updatedRoom.toJson());
@@ -425,31 +430,12 @@ class _GameScreenState extends State<GameScreen> {
 
     final myPlayer = _currentRoom!.players[playerIndex];
     if (currentHandLength != 1 && myPlayer.hasSaidUno) {
-      final players = List<Player>.from(_currentRoom!.players);
-      players[playerIndex] = Player(
-        id: myPlayer.id,
-        name: myPlayer.name,
-        hand: myPlayer.hand,
-        isHost: myPlayer.isHost,
-        hasSaidUno: false,
-      );
-
-      final updatedRoom = GameRoom(
-        code: _currentRoom!.code,
-        hostId: _currentRoom!.hostId,
-        status: _currentRoom!.status,
-        players: players,
-        discardPile: _currentRoom!.discardPile,
-        deck: _currentRoom!.deck,
-        currentTurnIndex: _currentRoom!.currentTurnIndex,
-        activeColor: _currentRoom!.activeColor,
-        pendingDrawCount: _currentRoom!.pendingDrawCount,
-        isClockwise: _currentRoom!.isClockwise,
-        scores: _currentRoom!.scores,
-        messages: _currentRoom!.messages,
-      );
-
-      await _dbRef.child(_cleanRoomCode).set(updatedRoom.toJson());
+      await _dbRef
+          .child(_cleanRoomCode)
+          .child('players')
+          .child('$playerIndex')
+          .child('hasSaidUno')
+          .set(false);
     }
   }
 
@@ -460,33 +446,12 @@ class _GameScreenState extends State<GameScreen> {
     final playerIndex = _currentRoom!.players.indexWhere((p) => p.id == _playerId);
     if (playerIndex == -1) return;
 
-    final players = List<Player>.from(_currentRoom!.players);
-    final myPlayer = players[playerIndex];
-
-    players[playerIndex] = Player(
-      id: myPlayer.id,
-      name: myPlayer.name,
-      hand: myPlayer.hand,
-      isHost: myPlayer.isHost,
-      hasSaidUno: true,
-    );
-
-    final updatedRoom = GameRoom(
-      code: _currentRoom!.code,
-      hostId: _currentRoom!.hostId,
-      status: _currentRoom!.status,
-      players: players,
-      discardPile: _currentRoom!.discardPile,
-      deck: _currentRoom!.deck,
-      currentTurnIndex: _currentRoom!.currentTurnIndex,
-      activeColor: _currentRoom!.activeColor,
-      pendingDrawCount: _currentRoom!.pendingDrawCount,
-      isClockwise: _currentRoom!.isClockwise,
-      scores: _currentRoom!.scores,
-      messages: _currentRoom!.messages,
-    );
-
-    await _dbRef.child(_cleanRoomCode).set(updatedRoom.toJson());
+    await _dbRef
+        .child(_cleanRoomCode)
+        .child('players')
+        .child('$playerIndex')
+        .child('hasSaidUno')
+        .set(true);
 
     if (!mounted) return;
     showUnoBubble('¡Has cantado UNO! 🗣️', color: Colors.green);
@@ -494,52 +459,86 @@ class _GameScreenState extends State<GameScreen> {
 
   Future<void> _accusePlayer(Player targetPlayer) async {
     if (_currentRoom == null) return;
-    
+
     if (targetPlayer.hand.length != 1 || targetPlayer.hasSaidUno) {
       showUnoBubble('¡Acusación inválida! Ya cantó o no tiene 1 carta.', color: Colors.red);
       return;
     }
 
-    final deck = List<GameCard>.from(_currentRoom!.deck);
-    final players = List<Player>.from(_currentRoom!.players);
-    final targetIndex = players.indexWhere((p) => p.id == targetPlayer.id);
+    try {
+      final result = await _dbRef.child(_cleanRoomCode).runTransaction((current) {
+        if (current == null) return Transaction.abort();
 
-    if (targetIndex == -1) return;
+        final currentRoom = GameRoom.fromJson(Map<String, dynamic>.from(current as Map));
+        final players = List<Player>.from(currentRoom.players);
+        final targetIndex = players.indexWhere((p) => p.id == targetPlayer.id);
 
-    List<GameCard> targetHand = List<GameCard>.from(targetPlayer.hand);
-    for (int i = 0; i < 2; i++) {
-      if (deck.isNotEmpty) {
-        targetHand.add(deck.removeLast());
+        if (targetIndex == -1) return Transaction.abort();
+
+        final serverTarget = players[targetIndex];
+        if (serverTarget.hand.length != 1 || serverTarget.hasSaidUno) {
+          return Transaction.abort();
+        }
+
+        final deck = List<GameCard>.from(currentRoom.deck);
+        final discardPile = List<GameCard>.from(currentRoom.discardPile);
+        final targetHand = List<GameCard>.from(serverTarget.hand);
+
+        int drawn = 0;
+        for (int i = 0; i < 2; i++) {
+          if (deck.isEmpty && discardPile.length > 1) {
+            final topCard = discardPile.removeLast();
+            deck.addAll(discardPile);
+            _shuffleDeck(deck);
+            discardPile.clear();
+            discardPile.add(topCard);
+          }
+          if (deck.isNotEmpty) {
+            targetHand.add(deck.removeLast());
+            drawn++;
+          }
+        }
+
+        players[targetIndex] = Player(
+          id: serverTarget.id,
+          name: serverTarget.name,
+          hand: targetHand,
+          isHost: serverTarget.isHost,
+          hasSaidUno: false,
+        );
+
+        final updatedRoom = GameRoom(
+          code: currentRoom.code,
+          hostId: currentRoom.hostId,
+          status: currentRoom.status,
+          players: players,
+          discardPile: discardPile,
+          deck: deck,
+          currentTurnIndex: currentRoom.currentTurnIndex,
+          activeColor: currentRoom.activeColor,
+          pendingDrawCount: currentRoom.pendingDrawCount,
+          isClockwise: currentRoom.isClockwise,
+          scores: currentRoom.scores,
+          messages: currentRoom.messages,
+        );
+
+        _accusedDrawnCount = drawn;
+        return Transaction.success(updatedRoom.toJson());
+      });
+
+      if (!mounted) return;
+      if (result.committed && result.snapshot.value != null) {
+        showUnoBubble(
+          '¡Acusación exitosa! ${targetPlayer.name} recibe $_accusedDrawnCount cartas.',
+          color: Colors.orange,
+        );
+      } else {
+        showUnoBubble('¡Acusación inválida! Ya cantó o no tiene 1 carta.', color: Colors.red);
       }
+    } catch (_) {
+      if (!mounted) return;
+      showUnoBubble('No se pudo acusar. Inténtalo de nuevo.', color: Colors.red);
     }
-
-    players[targetIndex] = Player(
-      id: targetPlayer.id,
-      name: targetPlayer.name,
-      hand: targetHand,
-      isHost: targetPlayer.isHost,
-      hasSaidUno: false,
-    );
-
-    final updatedRoom = GameRoom(
-      code: _currentRoom!.code,
-      hostId: _currentRoom!.hostId,
-      status: _currentRoom!.status,
-      players: players,
-      discardPile: _currentRoom!.discardPile,
-      deck: deck,
-      currentTurnIndex: _currentRoom!.currentTurnIndex,
-      activeColor: _currentRoom!.activeColor,
-      pendingDrawCount: _currentRoom!.pendingDrawCount,
-      isClockwise: _currentRoom!.isClockwise,
-      scores: _currentRoom!.scores,
-      messages: _currentRoom!.messages,
-    );
-
-    await _dbRef.child(_cleanRoomCode).set(updatedRoom.toJson());
-
-    if (!mounted) return;
-    showUnoBubble('¡Acusación exitosa! ${targetPlayer.name} recibe +2 cartas.', color: Colors.orange);
   }
 
   int _getNextTurnIndex(int current, int totalPlayers, bool isClockwise, int step) {
@@ -882,7 +881,7 @@ class _GameScreenState extends State<GameScreen> {
   }
 
   void _showInviteModal() {
-    final TextEditingController emailController = TextEditingController();
+    final TextEditingController nickController = TextEditingController();
 
     showDialog(
       context: context,
@@ -890,12 +889,15 @@ class _GameScreenState extends State<GameScreen> {
         backgroundColor: const Color(0xFF1B1B2F),
         title: const Text('Invitar a un amigo', style: TextStyle(color: Colors.white)),
         content: TextField(
-          controller: emailController,
+          controller: nickController,
           style: const TextStyle(color: Colors.white),
+          textCapitalization: TextCapitalization.none,
           decoration: const InputDecoration(
-            labelText: 'Correo de Google del amigo',
+            labelText: 'Nick del amigo',
             labelStyle: TextStyle(color: Colors.white60),
-            prefixIcon: Icon(Icons.email, color: Colors.amber),
+            prefixIcon: Icon(Icons.tag, color: Colors.amber),
+            helperText: 'El nick único que eligió al iniciar sesión.',
+            helperStyle: TextStyle(color: Colors.white38),
           ),
         ),
         actions: [
@@ -906,10 +908,10 @@ class _GameScreenState extends State<GameScreen> {
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: Colors.blueAccent),
             onPressed: () async {
-              String email = emailController.text.trim();
-              if (email.isEmpty) return;
+              String nick = nickController.text.trim();
+              if (nick.isEmpty) return;
 
-              bool success = await InvitationService().sendGameInvitation(email, _cleanRoomCode);
+              bool success = await InvitationService().sendGameInvitationByNick(nick, _cleanRoomCode);
 
               if (!dialogContext.mounted) return;
               Navigator.pop(dialogContext);
@@ -919,8 +921,8 @@ class _GameScreenState extends State<GameScreen> {
                 SnackBar(
                   content: Text(
                     success
-                        ? '¡Invitación enviada a $email!'
-                        : 'No se encontró al usuario o no está registrado.',
+                        ? '¡Invitación enviada a $nick!'
+                        : 'No se encontró ese nick o el usuario está desconectado si aún no tiene nick.',
                   ),
                   backgroundColor: success ? Colors.green.shade700 : Colors.red.shade700,
                   behavior: SnackBarBehavior.floating,
@@ -980,7 +982,7 @@ class _GameScreenState extends State<GameScreen> {
   void _showColorPicker(Function(CardColor) onColorSelected) {
     showDialog(
       context: context,
-      barrierDismissible: false,
+      barrierDismissible: true,
       builder: (dialogContext) {
         return AlertDialog(
           backgroundColor: const Color(0xFF1B1B2F),
@@ -994,6 +996,12 @@ class _GameScreenState extends State<GameScreen> {
               _colorOption(Colors.amber.shade700, CardColor.yellow, onColorSelected, dialogContext),
             ],
           ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Cancelar', style: TextStyle(color: Colors.white70)),
+            ),
+          ],
         );
       },
     );

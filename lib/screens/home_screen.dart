@@ -86,8 +86,18 @@ class _HomeScreenState extends State<HomeScreen> {
     const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
     final random = Random();
     return String.fromCharCodes(
-      Iterable.generate(4, (_) => chars.codeUnitAt(random.nextInt(chars.length))),
+      Iterable.generate(6, (_) => chars.codeUnitAt(random.nextInt(chars.length))),
     );
+  }
+
+  Future<String> _generateAvailableRoomCode() async {
+    final roomsRef = FirebaseDatabase.instance.ref().child('rooms');
+    for (int attempt = 0; attempt < 10; attempt++) {
+      final code = _generateRoomCode();
+      final snapshot = await roomsRef.child(code).get();
+      if (!snapshot.exists) return code;
+    }
+    return _generateRoomCode();
   }
 
   Future<void> _handleGoogleSignIn() async {
@@ -100,7 +110,79 @@ class _HomeScreenState extends State<HomeScreen> {
       });
       _listenForInvitations();
       _showSnackBar('¡Bienvenido, ${user.displayName ?? 'Jugador'}!');
+
+      String safeKey = AuthService.safeUserKey(user.email);
+      await _ensureNick(safeKey);
     }
+  }
+
+  Future<void> _ensureNick(String safeKey) async {
+    final existingNick = await _authService.getUserNick(safeKey);
+    if (existingNick != null && existingNick.isNotEmpty) return;
+    if (!mounted) return;
+
+    final nickController = TextEditingController();
+    String? errorText;
+
+    await showDialog(
+      context: context,
+      barrierDismissible: true,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          backgroundColor: const Color(0xFF1B1B2F),
+          title: const Text('Elige tu nick', style: TextStyle(color: Colors.white)),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                'Es el nombre único con el que tus amigos podrán invitarte a jugar.',
+                style: TextStyle(color: Colors.white70),
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: nickController,
+                style: const TextStyle(color: Colors.white),
+                decoration: InputDecoration(
+                  labelText: 'Nick',
+                  labelStyle: const TextStyle(color: Colors.white60),
+                  prefixIcon: const Icon(Icons.tag, color: Colors.amber),
+                  errorText: errorText,
+                  filled: true,
+                  fillColor: Colors.white.withValues(alpha: 0.05),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide.none,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Ahora no', style: TextStyle(color: Colors.grey)),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.amber),
+              onPressed: () async {
+                final nick = nickController.text.trim();
+                if (!AuthService.isValidNick(nick)) {
+                  setDialogState(() => errorText = 'Solo letras, números y guión bajo. Sin espacios.');
+                  return;
+                }
+                final claimed = await _authService.claimNick(nick, safeKey);
+                if (!claimed) {
+                  setDialogState(() => errorText = 'Ese nick ya está en uso. Prueba otro.');
+                  return;
+                }
+                if (dialogContext.mounted) Navigator.pop(dialogContext);
+              },
+              child: const Text('Guardar', style: TextStyle(color: Colors.black)),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Future<void> _handleSignOut() async {
@@ -119,9 +201,11 @@ class _HomeScreenState extends State<HomeScreen> {
       return;
     }
 
-    final roomCode = _generateRoomCode();
-    _codeController.text = roomCode;
-    _navigateToGame(roomCode: roomCode, playerName: name, isHost: true);
+    _generateAvailableRoomCode().then((roomCode) {
+      if (!mounted) return;
+      _codeController.text = roomCode;
+      _navigateToGame(roomCode: roomCode, playerName: name, isHost: true);
+    });
   }
 
   void _joinRoom() {
@@ -132,8 +216,8 @@ class _HomeScreenState extends State<HomeScreen> {
       _showSnackBar('Por favor, introduce tu apodo o inicia sesión con Google.');
       return;
     }
-    if (code.length != 4) {
-      _showSnackBar('El código de la sala debe tener 4 caracteres.');
+    if (code.length != 6) {
+      _showSnackBar('El código de la sala debe tener 6 caracteres.');
       return;
     }
 
@@ -371,10 +455,10 @@ class _HomeScreenState extends State<HomeScreen> {
                       TextField(
                         controller: _codeController,
                         textCapitalization: TextCapitalization.characters,
-                        maxLength: 4,
+                        maxLength: 6,
                         style: const TextStyle(color: Colors.white, letterSpacing: 2, fontWeight: FontWeight.bold),
                         decoration: InputDecoration(
-                          labelText: 'Código de Sala (4 caracteres)',
+                          labelText: 'Código de Sala (6 caracteres)',
                           labelStyle: const TextStyle(color: Colors.white60),
                           prefixIcon: const Icon(Icons.vpn_key, color: Colors.lightBlueAccent),
                           counterText: '',

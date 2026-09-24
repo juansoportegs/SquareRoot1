@@ -12,6 +12,42 @@ class AuthService {
   static String safeUserKey(String? email) {
     return email?.trim().toLowerCase().replaceAll('.', ',') ?? '';
   }
+
+  static String normalizeNick(String nick) {
+    return nick.trim().toLowerCase().replaceAll(RegExp(r'\s+'), '');
+  }
+
+  static bool isValidNick(String nick) {
+    final normalized = normalizeNick(nick);
+    if (normalized.isEmpty) return false;
+    return RegExp(r'^[a-zA-Z0-9_]+$').hasMatch(normalized);
+  }
+
+  Future<String?> getUserNick(String safeUserKey) async {
+    final snapshot = await _dbRef.child('users/$safeUserKey/nick').get();
+    if (snapshot.exists && snapshot.value is String) {
+      return snapshot.value as String;
+    }
+    return null;
+  }
+
+  Future<bool> claimNick(String nick, String safeUserKey) async {
+    if (!isValidNick(nick)) return false;
+    final normalized = normalizeNick(nick);
+
+    // El nodo nicks/<normalizedNick> actúa como índice único: solo un
+    // usuario puede reclamarlo. Si ya existe, se aborta la transacción.
+    final nickRef = _dbRef.child('nicks/$normalized');
+    final result = await nickRef.runTransaction((current) {
+      if (current != null) return Transaction.abort();
+      return Transaction.success(safeUserKey);
+    });
+
+    if (!result.committed) return false;
+
+    await _dbRef.child('users/$safeUserKey').update({'nick': normalized});
+    return true;
+  }
   
   // Referencia a la base de datos usando la URL explícita para evitar conflictos web
   final DatabaseReference _dbRef = FirebaseDatabase.instanceFor(
