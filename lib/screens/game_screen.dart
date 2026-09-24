@@ -42,6 +42,8 @@ class _GameScreenState extends State<GameScreen> {
 
   OverlayEntry? _currentBubble;
 
+  final TextEditingController _chatController = TextEditingController();
+
   void showUnoBubble(String message, {Color color = Colors.amber}) {
     _currentBubble?.remove();
 
@@ -80,6 +82,7 @@ class _GameScreenState extends State<GameScreen> {
 
   @override
   void dispose() {
+    _chatController.dispose();
     _unoTimer?.cancel();
     _currentBubble?.remove();
     super.dispose();
@@ -113,6 +116,7 @@ class _GameScreenState extends State<GameScreen> {
           pendingDrawCount: 0,
           isClockwise: true,
           scores: {_playerId: 0},
+          messages: [],
         );
 
         await roomRef.set(room.toJson());
@@ -154,6 +158,134 @@ class _GameScreenState extends State<GameScreen> {
         });
       }
     }
+  }
+
+  Future<void> _sendChatMessage(String text) async {
+    if (_currentRoom == null || text.trim().isEmpty) return;
+
+    final trimmedText = text.trim();
+    _chatController.clear();
+
+    final timeNow = TimeOfDay.fromDateTime(DateTime.now()).format(context);
+    final newMsg = ChatMessage(
+      senderName: widget.playerName,
+      text: trimmedText,
+      time: timeNow,
+    );
+
+    final updatedMessages = List<ChatMessage>.from(_currentRoom!.messages)..add(newMsg);
+
+    await _dbRef.child(_cleanRoomCode).child('messages').set(
+          updatedMessages.map((m) => m.toJson()).toList(),
+        );
+  }
+
+  Widget _buildChatWidget({double height = 170}) {
+    return Container(
+      height: height,
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.8),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: Colors.amber.withValues(alpha: 0.4),
+          width: 1.5,
+        ),
+      ),
+      child: Column(
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.12),
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
+            ),
+            child: const Row(
+              children: [
+                Icon(Icons.chat_bubble_outline, size: 14, color: Colors.amber),
+                SizedBox(width: 6),
+                Text(
+                  'Chat de la Sala',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: ListView.builder(
+              reverse: true,
+              padding: const EdgeInsets.all(8),
+              itemCount: _currentRoom?.messages.length ?? 0,
+              itemBuilder: (context, index) {
+                final msg = _currentRoom!.messages.reversed.toList()[index];
+                final isMe = msg.senderName == widget.playerName;
+
+                return Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 3.0),
+                  child: RichText(
+                    text: TextSpan(
+                      style: const TextStyle(fontSize: 13),
+                      children: [
+                        TextSpan(
+                          text: '[${msg.time}] ',
+                          style: const TextStyle(color: Colors.white54, fontSize: 10),
+                        ),
+                        TextSpan(
+                          text: '${msg.senderName}: ',
+                          style: TextStyle(
+                            color: isMe ? Colors.greenAccent : Colors.amberAccent,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        TextSpan(
+                          text: msg.text,
+                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w500),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.all(6.0),
+            child: Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _chatController,
+                    style: const TextStyle(color: Colors.white, fontSize: 13),
+                    decoration: InputDecoration(
+                      hintText: 'Escribe un mensaje...',
+                      hintStyle: const TextStyle(color: Colors.white54),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                      filled: true,
+                      fillColor: Colors.white.withValues(alpha: 0.15),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                        borderSide: BorderSide.none,
+                      ),
+                    ),
+                    onSubmitted: _sendChatMessage,
+                  ),
+                ),
+                const SizedBox(width: 6),
+                IconButton(
+                  constraints: const BoxConstraints(),
+                  padding: const EdgeInsets.all(8),
+                  icon: const Icon(Icons.send, color: Colors.amber, size: 20),
+                  onPressed: () => _sendChatMessage(_chatController.text),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   List<GameCard> _generateOfficialDeck() {
@@ -248,6 +380,7 @@ class _GameScreenState extends State<GameScreen> {
       pendingDrawCount: 0,
       isClockwise: true,
       scores: _currentRoom!.scores,
+      messages: _currentRoom!.messages,
     );
 
     await _dbRef.child(_cleanRoomCode).set(updatedRoom.toJson());
@@ -312,6 +445,7 @@ class _GameScreenState extends State<GameScreen> {
         pendingDrawCount: _currentRoom!.pendingDrawCount,
         isClockwise: _currentRoom!.isClockwise,
         scores: _currentRoom!.scores,
+        messages: _currentRoom!.messages,
       );
 
       await _dbRef.child(_cleanRoomCode).set(updatedRoom.toJson());
@@ -348,6 +482,7 @@ class _GameScreenState extends State<GameScreen> {
       pendingDrawCount: _currentRoom!.pendingDrawCount,
       isClockwise: _currentRoom!.isClockwise,
       scores: _currentRoom!.scores,
+      messages: _currentRoom!.messages,
     );
 
     await _dbRef.child(_cleanRoomCode).set(updatedRoom.toJson());
@@ -397,6 +532,7 @@ class _GameScreenState extends State<GameScreen> {
       pendingDrawCount: _currentRoom!.pendingDrawCount,
       isClockwise: _currentRoom!.isClockwise,
       scores: _currentRoom!.scores,
+      messages: _currentRoom!.messages,
     );
 
     await _dbRef.child(_cleanRoomCode).set(updatedRoom.toJson());
@@ -531,6 +667,7 @@ class _GameScreenState extends State<GameScreen> {
       pendingDrawCount: 0,
       isClockwise: _currentRoom!.isClockwise,
       scores: _currentRoom!.scores,
+      messages: _currentRoom!.messages,
     );
 
     await _dbRef.child(_cleanRoomCode).set(updatedRoom.toJson());
@@ -623,6 +760,7 @@ class _GameScreenState extends State<GameScreen> {
       pendingDrawCount: newPendingDraw,
       isClockwise: newIsClockwise,
       scores: scores,
+      messages: _currentRoom!.messages,
     );
 
     await _dbRef.child(_cleanRoomCode).set(updatedRoom.toJson());
@@ -693,6 +831,7 @@ class _GameScreenState extends State<GameScreen> {
       pendingDrawCount: 0,
       isClockwise: _currentRoom!.isClockwise,
       scores: _currentRoom!.scores,
+      messages: _currentRoom!.messages,
     );
 
     await _dbRef.child(_cleanRoomCode).set(updatedRoom.toJson());
@@ -735,6 +874,7 @@ class _GameScreenState extends State<GameScreen> {
       pendingDrawCount: _currentRoom!.pendingDrawCount,
       isClockwise: _currentRoom!.isClockwise,
       scores: _currentRoom!.scores,
+      messages: _currentRoom!.messages,
     );
 
     await _dbRef.child(_cleanRoomCode).set(updatedRoom.toJson());
@@ -768,6 +908,7 @@ class _GameScreenState extends State<GameScreen> {
                   pendingDrawCount: _currentRoom!.pendingDrawCount,
                   isClockwise: _currentRoom!.isClockwise,
                   scores: _currentRoom!.scores,
+                  messages: _currentRoom!.messages,
                 );
                 await _dbRef.child(_cleanRoomCode).set(updatedRoom.toJson());
               }
@@ -995,7 +1136,7 @@ class _GameScreenState extends State<GameScreen> {
               ],
             ),
           ),
-          const SizedBox(height: 20),
+          const SizedBox(height: 15),
           Expanded(
             child: Container(
               decoration: BoxDecoration(
@@ -1027,7 +1168,9 @@ class _GameScreenState extends State<GameScreen> {
               ),
             ),
           ),
-          const SizedBox(height: 20),
+          const SizedBox(height: 15),
+          _buildChatWidget(height: 160),
+          const SizedBox(height: 15),
           if (widget.isHost)
             SizedBox(
               width: double.infinity,
@@ -1071,7 +1214,7 @@ class _GameScreenState extends State<GameScreen> {
     return Column(
       children: [
         Container(
-          padding: const EdgeInsets.all(12),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
           color: Colors.black.withValues(alpha: 0.3),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -1080,15 +1223,15 @@ class _GameScreenState extends State<GameScreen> {
                 isMyTurn ? '¡ES TU TURNO!' : 'Turno de: ${currentTurnPlayer.name}',
                 style: TextStyle(
                   fontWeight: FontWeight.bold,
-                  fontSize: 16,
+                  fontSize: 15,
                   color: isMyTurn ? Colors.greenAccent : Colors.white70,
                 ),
               ),
               Row(
                 children: [
-                  const Text('Color: ', style: TextStyle(color: Colors.white70)),
+                  const Text('Color: ', style: TextStyle(color: Colors.white70, fontSize: 13)),
                   CircleAvatar(
-                    radius: 12,
+                    radius: 10,
                     backgroundColor: _getFlutterColor(_currentRoom!.activeColor),
                   ),
                 ],
@@ -1099,168 +1242,204 @@ class _GameScreenState extends State<GameScreen> {
         if (hasPendingDraws)
           Container(
             width: double.infinity,
-            padding: const EdgeInsets.symmetric(vertical: 6),
+            padding: const EdgeInsets.symmetric(vertical: 4),
             color: Colors.red.shade900,
             child: Text(
               '¡ACUMULADO DE ROBO: +${_currentRoom!.pendingDrawCount}!',
               textAlign: TextAlign.center,
-              style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
+              style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white, fontSize: 12),
             ),
           ),
 
         if (needsUno)
           Container(
             width: double.infinity,
-            padding: const EdgeInsets.all(8),
+            padding: const EdgeInsets.all(6),
             color: Colors.amber.shade800,
             child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 Text(
                   '¡TIENES 1 CARTA! Canta UNO en: ${_unoSecondsRemaining}s',
-                  style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
+                  style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white, fontSize: 12),
                 ),
                 const SizedBox(width: 15),
                 ElevatedButton(
                   onPressed: _pressUnoButton,
-                  style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+                  style: ElevatedButton.styleFrom(backgroundColor: Colors.red, padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2)),
                   child: const Text('¡UNO!'),
                 ),
               ],
             ),
           ),
 
-        Expanded(
+        // Lista compacta de rivales
+        SizedBox(
+          height: 55,
           child: ListView(
-            padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
             children: _currentRoom!.players.where((p) => p.id != _playerId).map((rival) {
               return Container(
-                margin: const EdgeInsets.only(bottom: 8),
+                margin: const EdgeInsets.only(right: 8),
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                 decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.05),
-                  borderRadius: BorderRadius.circular(12),
+                  color: Colors.white.withValues(alpha: 0.06),
+                  borderRadius: BorderRadius.circular(10),
                   border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
                 ),
-                child: Padding(
-                  padding: const EdgeInsets.all(12.0),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Row(
-                        children: [
-                          const Icon(Icons.person, color: Colors.lightBlueAccent),
-                          const SizedBox(width: 8),
-                          Text(
-                            '${rival.name}: ${rival.hand.length} 🃏',
-                            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
-                          ),
-                        ],
-                      ),
-                      if (rival.hand.length == 1)
-                        ElevatedButton.icon(
-                          onPressed: () => _accusePlayer(rival),
-                          style: ElevatedButton.styleFrom(backgroundColor: Colors.purple.shade700),
-                          icon: const Icon(Icons.gavel, size: 16),
-                          label: const Text('¡ACUSAR!'),
+                child: Row(
+                  children: [
+                    const Icon(Icons.person, color: Colors.lightBlueAccent, size: 16),
+                    const SizedBox(width: 4),
+                    Text(
+                      '${rival.name}: ${rival.hand.length} 🃏',
+                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+                    ),
+                    if (rival.hand.length == 1) ...[
+                      const SizedBox(width: 6),
+                      InkWell(
+                        onTap: () => _accusePlayer(rival),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(color: Colors.purple, borderRadius: BorderRadius.circular(6)),
+                          child: const Text('¡ACUSAR!', style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
                         ),
-                    ],
-                  ),
+                      ),
+                    ]
+                  ],
                 ),
               );
             }).toList(),
           ),
         ),
 
-        Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            GestureDetector(
-              onTap: isMyTurn ? _drawCard : null,
-              child: Container(
-                width: 80,
-                height: 120,
-                decoration: BoxDecoration(
-                  color: isMyTurn ? Colors.blueGrey.shade800 : Colors.black45,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(
-                    color: isMyTurn ? Colors.greenAccent : Colors.white24,
-                    width: isMyTurn ? 3 : 2,
+        // Zona central: Mazo de robar y carta descartada
+        Expanded(
+          child: Center(
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                GestureDetector(
+                  onTap: isMyTurn ? _drawCard : null,
+                  child: Container(
+                    width: 75,
+                    height: 110,
+                    decoration: BoxDecoration(
+                      color: isMyTurn ? Colors.blueGrey.shade800 : Colors.black45,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: isMyTurn ? Colors.greenAccent : Colors.white24,
+                        width: isMyTurn ? 3 : 2,
+                      ),
+                    ),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Icon(Icons.download_rounded, color: Colors.white, size: 20),
+                        const SizedBox(height: 4),
+                        Text(
+                          hasPendingDraws ? 'COMER +${_currentRoom!.pendingDrawCount}' : 'ROBAR',
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 9, color: Colors.white),
+                        ),
+                        Text('(${_currentRoom!.deck.length})', style: const TextStyle(fontSize: 10, color: Colors.white70)),
+                      ],
+                    ),
                   ),
                 ),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const Icon(Icons.download_rounded, color: Colors.white),
-                    const SizedBox(height: 4),
-                    Text(
-                      hasPendingDraws ? 'COMER +${_currentRoom!.pendingDrawCount}' : 'ROBAR',
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 10, color: Colors.white),
-                    ),
-                    Text('(${_currentRoom!.deck.length})', style: const TextStyle(fontSize: 10, color: Colors.white70)),
-                  ],
+                const SizedBox(width: 25),
+                if (_currentRoom!.discardPile.isNotEmpty)
+                  CardWidget(card: _currentRoom!.discardPile.last),
+              ],
+            ),
+          ),
+        ),
+
+        // CHAT AMPLIADO
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 4.0),
+          child: _buildChatWidget(height: 170),
+        ),
+
+        // Botón de estado de turno / pasar con ALTO CONTRASTE
+        if (isMyTurn && !hasPendingDraws)
+          Padding(
+            padding: const EdgeInsets.only(top: 6.0),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.75),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: Colors.amberAccent, width: 1),
+              ),
+              child: ElevatedButton.icon(
+                onPressed: canPass ? _passTurn : null,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: canPass ? Colors.orange.shade800 : Colors.blueGrey.shade700,
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                ),
+                icon: const Icon(Icons.info_outline, size: 18, color: Colors.white),
+                label: Text(
+                  hasPlayableCard && !_hasDrawnThisTurn
+                      ? 'DEBES JUGAR CARTA'
+                      : (!_hasDrawnThisTurn ? 'DEBES ROBAR CARTA' : 'PASAR TURNO'),
+                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.white),
                 ),
               ),
             ),
-            const SizedBox(width: 30),
-            if (_currentRoom!.discardPile.isNotEmpty)
-              CardWidget(card: _currentRoom!.discardPile.last),
-          ],
-        ),
-        const SizedBox(height: 15),
-
-        if (isMyTurn && !hasPendingDraws)
-          ElevatedButton.icon(
-            onPressed: canPass ? _passTurn : null,
-            style: ElevatedButton.styleFrom(
-              backgroundColor: canPass ? Colors.orange.shade800 : Colors.grey.shade800,
-            ),
-            icon: const Icon(Icons.skip_next),
-            label: Text(hasPlayableCard && !_hasDrawnThisTurn ? 'DEBES JUGAR CARTA' : (!_hasDrawnThisTurn ? 'DEBES ROBAR CARTA' : 'PASAR TURNO')),
           ),
 
         if (isMyTurn && hasPendingDraws)
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 24.0),
-            child: Text(
-              '¡No tienes con qué responder! Pulsa en ROBAR para comerte las ${_currentRoom!.pendingDrawCount} cartas.',
-              textAlign: TextAlign.center,
-              style: const TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold),
+            padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 4.0),
+            child: Container(
+              padding: const EdgeInsets.all(6),
+              decoration: BoxDecoration(
+                color: Colors.red.shade900,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(
+                '¡Pulsa en ROBAR para comerte las ${_currentRoom!.pendingDrawCount} cartas!',
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+              ),
             ),
           ),
 
-        const Spacer(),
+        // Mano del jugador (TODAS LAS CARTAS CON EL MISMO BRILLO/OPACIDAD)
         Padding(
-          padding: const EdgeInsets.only(bottom: 8.0),
-          child: Text(
-            'Tu Mano (${myPlayer.hand.length}):',
-            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white),
+          padding: const EdgeInsets.fromLTRB(12, 6, 12, 2),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'Tu Mano (${myPlayer.hand.length}):',
+                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.white),
+              ),
+            ],
           ),
         ),
         SizedBox(
-          height: 125,
+          height: 115,
           child: ListView.builder(
             scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 16),
+            padding: const EdgeInsets.symmetric(horizontal: 12),
             itemCount: myPlayer.hand.length,
             itemBuilder: (context, index) {
               final card = myPlayer.hand[index];
-              final canPlay = isMyTurn && _canPlayCard(card);
 
               return GestureDetector(
                 onTap: isMyTurn ? () => _playCard(card) : null,
                 child: Padding(
-                  padding: const EdgeInsets.only(right: 8.0),
-                  child: Opacity(
-                    opacity: canPlay || !isMyTurn ? 1.0 : 0.4,
-                    child: CardWidget(card: card),
-                  ),
+                  padding: const EdgeInsets.only(right: 6.0),
+                  child: CardWidget(card: card), // Sin opacidad reducida, todas se ven igual
                 ),
               );
             },
           ),
         ),
-        const SizedBox(height: 20),
+        const SizedBox(height: 8),
       ],
     );
   }
