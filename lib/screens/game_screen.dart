@@ -441,6 +441,14 @@ class _GameScreenState extends State<GameScreen> {
 
   Future<void> _deleteRoom() async {
     if (_isLeavingRoom) return;
+    final room = _currentRoom;
+    if (room != null && room.status == GameStatus.playing) return;
+    if (room != null &&
+        room.status == GameStatus.finished &&
+        room.players.isNotEmpty &&
+        room.players.every((p) => room.rematchReady.contains(p.id))) {
+      return;
+    }
     _isLeavingRoom = true;
     _rematchTimer?.cancel();
     await _dbRef.child(_cleanRoomCode).remove();
@@ -1263,6 +1271,15 @@ class _GameScreenState extends State<GameScreen> {
                       }
                     });
                   } else {
+                    if (_rematchTimerRunning || _rematchTimer != null) {
+                      _rematchTimer?.cancel();
+                      if (mounted) {
+                        setState(() {
+                          _rematchTimerRunning = false;
+                          _rematchSecondsRemaining = 30;
+                        });
+                      }
+                    }
                     WidgetsBinding.instance.addPostFrameCallback((_) {
                       if (!mounted) return;
                       _checkUnoState(_currentRoom!.players);
