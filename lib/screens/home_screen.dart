@@ -5,7 +5,6 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'game_screen.dart';
 import '../services/auth_service.dart';
-import 'package:uno_stack/services/invitation_service.dart';
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
 
@@ -34,7 +33,7 @@ class _HomeScreenState extends State<HomeScreen> {
     User? user = FirebaseAuth.instance.currentUser;
     if (user == null || user.email == null) return;
 
-    String safeUserKey = user.email!.replaceAll('.', ',');
+    String safeUserKey = AuthService.safeUserKey(user.email);
     _invitationSubscription = FirebaseDatabase.instance
         .ref()
         .child('invitations/$safeUserKey')
@@ -154,60 +153,6 @@ class _HomeScreenState extends State<HomeScreen> {
           playerName: playerName,
           isHost: isHost,
         ),
-      ),
-    );
-  }
-
-  void _showInviteModal() {
-    final TextEditingController emailController = TextEditingController();
-    final BuildContext dialogContext = context;
-
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: const Color(0xFF1B1B2F),
-        title: const Text('Invitar a un amigo', style: TextStyle(color: Colors.white)),
-        content: TextField(
-          controller: emailController,
-          style: const TextStyle(color: Colors.white),
-          decoration: const InputDecoration(
-            labelText: 'Correo de Google del amigo',
-            labelStyle: TextStyle(color: Colors.white60),
-            prefixIcon: Icon(Icons.email, color: Colors.amber),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancelar', style: TextStyle(color: Colors.grey)),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.blueAccent),
-            onPressed: () async {
-              String email = emailController.text.trim();
-              if (email.isEmpty) return;
-
-              String roomCode = _codeController.text.trim().toUpperCase();
-              if (roomCode.length != 4) {
-                Navigator.pop(context);
-                _showSnackBar('Primero crea una sala o introduce un código válido de 4 caracteres.');
-                return;
-              }
-
-              bool success = await InvitationService().sendGameInvitation(email, roomCode);
-              
-              if (!dialogContext.mounted) return;
-              Navigator.pop(context);
-
-              if (success) {
-                _showSnackBar('¡Invitación enviada con éxito!');
-              } else {
-                _showSnackBar('No se encontró al usuario o no está registrado.');
-              }
-            },
-            child: const Text('Enviar invitación'),
-          ),
-        ],
       ),
     );
   }
@@ -472,24 +417,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
                 if (currentUser != null) ...[
                   const SizedBox(height: 20),
-                  SizedBox(
-                    width: double.infinity,
-                    height: 48,
-                    child: OutlinedButton.icon(
-                      onPressed: _showInviteModal,
-                      icon: const Icon(Icons.share, color: Colors.amber),
-                      label: const Text(
-                        'INVITAR AMIGO POR CORREO',
-                        style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.amber),
-                      ),
-                      style: OutlinedButton.styleFrom(
-                        side: const BorderSide(color: Colors.amber),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      ),
-                    ),
-                  ),
                 ],
               ],
             ),

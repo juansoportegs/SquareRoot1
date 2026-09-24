@@ -15,6 +15,14 @@
       },
       "oauth_client": [
         {
+          "client_id": "35506012542-f28v2vij9cosstah2iu4200ggusdntal.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.uno_stack_game",
+            "certificate_hash": "831b8412772d197ad7d1c957760275fd036c9a8c"
+          }
+        },
+        {
           "client_id": "35506012542-t4sfiem60kq5du76f2fepfrspen6tn5k.apps.googleusercontent.com",
           "client_type": 1,
           "android_info": {

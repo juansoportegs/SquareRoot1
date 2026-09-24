@@ -8,6 +8,7 @@ import '../models/room_model.dart';
 import '../widgets/card_widget.dart';
 import '../widgets/uno_bubble_alert.dart';
 import '../logic/game_rules.dart';
+import '../services/invitation_service.dart';
 
 class GameScreen extends StatefulWidget {
   final String roomCode;
@@ -880,6 +881,59 @@ class _GameScreenState extends State<GameScreen> {
     await _dbRef.child(_cleanRoomCode).set(updatedRoom.toJson());
   }
 
+  void _showInviteModal() {
+    final TextEditingController emailController = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: const Color(0xFF1B1B2F),
+        title: const Text('Invitar a un amigo', style: TextStyle(color: Colors.white)),
+        content: TextField(
+          controller: emailController,
+          style: const TextStyle(color: Colors.white),
+          decoration: const InputDecoration(
+            labelText: 'Correo de Google del amigo',
+            labelStyle: TextStyle(color: Colors.white60),
+            prefixIcon: Icon(Icons.email, color: Colors.amber),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Cancelar', style: TextStyle(color: Colors.grey)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.blueAccent),
+            onPressed: () async {
+              String email = emailController.text.trim();
+              if (email.isEmpty) return;
+
+              bool success = await InvitationService().sendGameInvitation(email, _cleanRoomCode);
+
+              if (!dialogContext.mounted) return;
+              Navigator.pop(dialogContext);
+
+              if (!mounted) return;
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(
+                    success
+                        ? '¡Invitación enviada a $email!'
+                        : 'No se encontró al usuario o no está registrado.',
+                  ),
+                  backgroundColor: success ? Colors.green.shade700 : Colors.red.shade700,
+                  behavior: SnackBarBehavior.floating,
+                ),
+              );
+            },
+            child: const Text('Enviar invitación'),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _confirmEndGame() {
     showDialog(
       context: context,
@@ -1171,6 +1225,27 @@ class _GameScreenState extends State<GameScreen> {
           const SizedBox(height: 15),
           _buildChatWidget(height: 160),
           const SizedBox(height: 15),
+          if (widget.isHost) ...[
+            SizedBox(
+              width: double.infinity,
+              height: 48,
+              child: OutlinedButton.icon(
+                onPressed: _showInviteModal,
+                icon: const Icon(Icons.share, color: Colors.amber),
+                label: const Text(
+                  'INVITAR AMIGO POR CORREO',
+                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.amber),
+                ),
+                style: OutlinedButton.styleFrom(
+                  side: const BorderSide(color: Colors.amber),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+          ],
           if (widget.isHost)
             SizedBox(
               width: double.infinity,

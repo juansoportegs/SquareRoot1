@@ -2,6 +2,7 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/foundation.dart';
+import 'auth_service.dart';
 
 class NotificationService {
   final FirebaseMessaging _firebaseMessaging = FirebaseMessaging.instance;
@@ -26,7 +27,7 @@ class NotificationService {
       User? user = FirebaseAuth.instance.currentUser;
       if (user != null && token != null) {
         // Limpiamos el correo o usamos el UID como clave segura
-        String safeUserKey = user.email?.replaceAll('.', ',') ?? user.uid;
+        String safeUserKey = AuthService.safeUserKey(user.email ?? user.uid);
         await _dbRef.child('users/$safeUserKey/fcmToken').set(token);
       }
     } else {

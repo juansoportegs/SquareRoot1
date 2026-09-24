@@ -8,6 +8,10 @@ import 'package:flutter/foundation.dart';
 class AuthService {
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final GoogleSignIn _googleSignIn = GoogleSignIn();
+
+  static String safeUserKey(String? email) {
+    return email?.trim().toLowerCase().replaceAll('.', ',') ?? '';
+  }
   
   // Referencia a la base de datos usando la URL explícita para evitar conflictos web
   final DatabaseReference _dbRef = FirebaseDatabase.instanceFor(
@@ -34,14 +38,27 @@ class AuthService {
       // 4. Inicia sesión en Firebase usando las credenciales de Google
       final UserCredential userCredential = await _auth.signInWithCredential(credential);
 
-      // 5. Si el login es exitoso, guardamos el token FCM y el nombre en la BD
+      // 5. Si el login es exitoso, guardamos el nombre y email en la BD
       if (userCredential.user != null) {
-        String? token = await FirebaseMessaging.instance.getToken();
-        if (token != null) {
-          String safeUserKey = userCredential.user!.email?.replaceAll('.', ',') ?? userCredential.user!.uid;
-          await _dbRef.child('users/$safeUserKey/fcmToken').set(token);
-          await _dbRef.child('users/$safeUserKey/name').set(userCredential.user!.displayName ?? 'Jugador');
-          await _dbRef.child('users/$safeUserKey/email').set(userCredential.user!.email ?? '');
+        String safeUserKey = AuthService.safeUserKey(userCredential.user!.email ?? userCredential.user!.uid);
+        await _dbRef.child('users/$safeUserKey/name').set(userCredential.user!.displayName ?? 'Jugador');
+        await _dbRef.child('users/$safeUserKey/email').set(userCredential.user!.email ?? '');
+
+        // FCM solo en plataformas soportadas; nunca debe bloquear el login
+        final supportedForFcm = defaultTargetPlatform == TargetPlatform.android ||
+            defaultTargetPlatform == TargetPlatform.iOS ||
+            defaultTargetPlatform == TargetPlatform.macOS;
+        if (supportedForFcm) {
+          try {
+            String? token = await FirebaseMessaging.instance.getToken();
+            if (token != null) {
+              await _dbRef.child('users/$safeUserKey/fcmToken').set(token);
+            }
+          } catch (e) {
+            debugPrint('Error al obtener el token FCM: $e');
+          }
+        } else {
+          debugPrint('FCM no soportado en ${defaultTargetPlatform.name}, se omite.');
         }
       }
 

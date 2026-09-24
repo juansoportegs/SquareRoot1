@@ -2,6 +2,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/foundation.dart';
+import 'auth_service.dart';
 
 class InvitationService {
   final DatabaseReference _dbRef = FirebaseDatabase.instanceFor(
@@ -14,7 +15,7 @@ class InvitationService {
       User? currentUser = FirebaseAuth.instance.currentUser;
       if (currentUser == null) return false;
 
-      String safeTargetKey = targetEmail.trim().toLowerCase().replaceAll('.', ',');
+      String safeTargetKey = AuthService.safeUserKey(targetEmail);
       String senderName = currentUser.displayName ?? 'Un jugador';
 
       DataSnapshot snapshot = await _dbRef.child('users/$safeTargetKey').get();
