@@ -1,7 +1,11 @@
 import 'dart:math';
+import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_database/firebase_database.dart';
 import 'game_screen.dart';
-
+import '../services/auth_service.dart';
+import 'package:uno_stack/services/invitation_service.dart';
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
 
@@ -12,6 +16,72 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   final TextEditingController _nameController = TextEditingController();
   final TextEditingController _codeController = TextEditingController();
+  final AuthService _authService = AuthService();
+  
+  User? get currentUser => FirebaseAuth.instance.currentUser;
+  StreamSubscription? _invitationSubscription;
+
+  @override
+  void initState() {
+    super.initState();
+    if (currentUser != null && currentUser!.displayName != null) {
+      _nameController.text = currentUser!.displayName!;
+    }
+    _listenForInvitations();
+  }
+
+  void _listenForInvitations() {
+    User? user = FirebaseAuth.instance.currentUser;
+    if (user == null || user.email == null) return;
+
+    String safeUserKey = user.email!.replaceAll('.', ',');
+    _invitationSubscription = FirebaseDatabase.instance
+        .ref()
+        .child('invitations/$safeUserKey')
+        .onValue
+        .listen((event) {
+      if (event.snapshot.exists) {
+        final data = event.snapshot.value as Map<dynamic, dynamic>?;
+        if (data != null) {
+          String senderName = data['senderName'] ?? 'Alguien';
+          String roomCode = data['roomCode'] ?? '';
+
+          _showInvitationDialog(senderName, roomCode);
+          event.snapshot.ref.remove();
+        }
+      }
+    });
+  }
+
+  void _showInvitationDialog(String senderName, String roomCode) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF1B1B2F),
+        title: const Text('¡Invitación a partida!', style: TextStyle(color: Colors.white)),
+        content: Text(
+          '$senderName te ha invitado a unirte a su sala ($roomCode).',
+          style: const TextStyle(color: Colors.white70),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Rechazar', style: TextStyle(color: Colors.redAccent)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.amber),
+            onPressed: () {
+              Navigator.pop(context);
+              _codeController.text = roomCode;
+              _joinRoom();
+            },
+            child: const Text('Unirme', style: TextStyle(color: Colors.black)),
+          ),
+        ],
+      ),
+    );
+  }
 
   String _generateRoomCode() {
     const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
@@ -21,14 +91,37 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  Future<void> _handleGoogleSignIn() async {
+    User? user = await _authService.signInWithGoogle();
+    if (user != null) {
+      setState(() {
+        if (user.displayName != null) {
+          _nameController.text = user.displayName!;
+        }
+      });
+      _listenForInvitations();
+      _showSnackBar('¡Bienvenido, ${user.displayName ?? 'Jugador'}!');
+    }
+  }
+
+  Future<void> _handleSignOut() async {
+    await _authService.signOut();
+    _invitationSubscription?.cancel();
+    setState(() {
+      _nameController.clear();
+    });
+    _showSnackBar('Sesión cerrada');
+  }
+
   void _createRoom() {
     final name = _nameController.text.trim();
     if (name.isEmpty) {
-      _showSnackBar('Por favor, introduce tu apodo.');
+      _showSnackBar('Por favor, introduce tu apodo o inicia sesión con Google.');
       return;
     }
 
     final roomCode = _generateRoomCode();
+    _codeController.text = roomCode;
     _navigateToGame(roomCode: roomCode, playerName: name, isHost: true);
   }
 
@@ -37,7 +130,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final code = _codeController.text.trim().toUpperCase();
 
     if (name.isEmpty) {
-      _showSnackBar('Por favor, introduce tu apodo.');
+      _showSnackBar('Por favor, introduce tu apodo o inicia sesión con Google.');
       return;
     }
     if (code.length != 4) {
@@ -65,6 +158,60 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  void _showInviteModal() {
+    final TextEditingController emailController = TextEditingController();
+    final BuildContext dialogContext = context;
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF1B1B2F),
+        title: const Text('Invitar a un amigo', style: TextStyle(color: Colors.white)),
+        content: TextField(
+          controller: emailController,
+          style: const TextStyle(color: Colors.white),
+          decoration: const InputDecoration(
+            labelText: 'Correo de Google del amigo',
+            labelStyle: TextStyle(color: Colors.white60),
+            prefixIcon: Icon(Icons.email, color: Colors.amber),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancelar', style: TextStyle(color: Colors.grey)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.blueAccent),
+            onPressed: () async {
+              String email = emailController.text.trim();
+              if (email.isEmpty) return;
+
+              String roomCode = _codeController.text.trim().toUpperCase();
+              if (roomCode.length != 4) {
+                Navigator.pop(context);
+                _showSnackBar('Primero crea una sala o introduce un código válido de 4 caracteres.');
+                return;
+              }
+
+              bool success = await InvitationService().sendGameInvitation(email, roomCode);
+              
+              if (!dialogContext.mounted) return;
+              Navigator.pop(context);
+
+              if (success) {
+                _showSnackBar('¡Invitación enviada con éxito!');
+              } else {
+                _showSnackBar('No se encontró al usuario o no está registrado.');
+              }
+            },
+            child: const Text('Enviar invitación'),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _showSnackBar(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -78,6 +225,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   void dispose() {
+    _invitationSubscription?.cancel();
     _nameController.dispose();
     _codeController.dispose();
     super.dispose();
@@ -86,8 +234,36 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      appBar: AppBar(
+        backgroundColor: const Color(0xFF1B1B2F),
+        elevation: 0,
+        actions: [
+          if (currentUser != null)
+            Padding(
+              padding: const EdgeInsets.only(right: 16.0),
+              child: Row(
+                children: [
+                  CircleAvatar(
+                    radius: 16,
+                    backgroundImage: currentUser!.photoURL != null
+                        ? NetworkImage(currentUser!.photoURL!)
+                        : null,
+                    child: currentUser!.photoURL == null
+                        ? const Icon(Icons.person, size: 16)
+                        : null,
+                  ),
+                  const SizedBox(width: 8),
+                  IconButton(
+                    icon: const Icon(Icons.logout, color: Colors.white70),
+                    tooltip: 'Cerrar sesión',
+                    onPressed: _handleSignOut,
+                  ),
+                ],
+              ),
+            )
+        ],
+      ),
       body: Container(
-        // Fondo con un degradado elegante que combina con la paleta oscura de la mesa de juego
         decoration: const BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topCenter,
@@ -105,7 +281,6 @@ class _HomeScreenState extends State<HomeScreen> {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                // Título con estilo dinámico tipo bloques de colores
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
@@ -124,9 +299,31 @@ class _HomeScreenState extends State<HomeScreen> {
                     letterSpacing: 0.5,
                   ),
                 ),
-                const SizedBox(height: 48),
+                const SizedBox(height: 36),
 
-                // Contenedor tipo tarjeta para agrupar los inputs de forma limpia
+                if (currentUser == null) ...[
+                  SizedBox(
+                    width: double.infinity,
+                    height: 50,
+                    child: OutlinedButton.icon(
+                      onPressed: _handleGoogleSignIn,
+                      icon: const Icon(Icons.g_mobiledata, size: 30, color: Colors.white),
+                      label: const Text(
+                        'Iniciar sesión con Google',
+                        style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.white),
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        side: BorderSide(color: Colors.white.withValues(alpha: 0.3)),
+                        backgroundColor: Colors.white.withValues(alpha: 0.05),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                ],
+
                 Container(
                   padding: const EdgeInsets.all(20),
                   decoration: BoxDecoration(
@@ -143,7 +340,6 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                   child: Column(
                     children: [
-                      // Campo de Nombre / Nick
                       TextField(
                         controller: _nameController,
                         style: const TextStyle(color: Colors.white),
@@ -164,8 +360,6 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                       ),
                       const SizedBox(height: 20),
-
-                      // Botón CREAR SALA
                       SizedBox(
                         width: double.infinity,
                         height: 52,
@@ -192,7 +386,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
                 const SizedBox(height: 28),
 
-                // Divisor estético
                 Row(
                   children: [
                     Expanded(child: Divider(color: Colors.white.withValues(alpha: 0.2))),
@@ -214,7 +407,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
                 const SizedBox(height: 28),
 
-                // Segundo contenedor para unirse a sala
                 Container(
                   padding: const EdgeInsets.all(20),
                   decoration: BoxDecoration(
@@ -231,7 +423,6 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                   child: Column(
                     children: [
-                      // Campo de Código de Sala
                       TextField(
                         controller: _codeController,
                         textCapitalization: TextCapitalization.characters,
@@ -255,8 +446,6 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                       ),
                       const SizedBox(height: 20),
-
-                      // Botón UNIRSE A SALA
                       SizedBox(
                         width: double.infinity,
                         height: 52,
@@ -280,6 +469,28 @@ class _HomeScreenState extends State<HomeScreen> {
                     ],
                   ),
                 ),
+
+                if (currentUser != null) ...[
+                  const SizedBox(height: 20),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 48,
+                    child: OutlinedButton.icon(
+                      onPressed: _showInviteModal,
+                      icon: const Icon(Icons.share, color: Colors.amber),
+                      label: const Text(
+                        'INVITAR AMIGO POR CORREO',
+                        style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.amber),
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        side: const BorderSide(color: Colors.amber),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
               ],
             ),
           ),
@@ -288,7 +499,6 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // Widget auxiliar para dar estilo de "ficha de juego" a las letras del título
   Widget _buildTitleLetter(String letter, Color color) {
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 4),
