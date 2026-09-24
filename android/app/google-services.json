@@ -13,7 +13,20 @@
           "package_name": "com.example.uno_stack_game"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "35506012542-t4sfiem60kq5du76f2fepfrspen6tn5k.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.uno_stack_game",
+            "certificate_hash": "67c9e94f6844fa7668f2ad7fb113de6da6f420f5"
+          }
+        },
+        {
+          "client_id": "35506012542-okmpn27q3csdpvp9v43kvk6riqvjae6k.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
           "current_key": "AIzaSyCf5-cagibXsBZxwKHoIfPWgmzOIAxQD0A"
@@ -21,7 +34,12 @@
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "35506012542-okmpn27q3csdpvp9v43kvk6riqvjae6k.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
         }
       }
     }
