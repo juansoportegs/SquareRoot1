@@ -1,0 +1,30 @@
+{
+  "project_info": {
+    "project_number": "35506012542",
+    "firebase_url": "https://uno-stack-2by2-default-rtdb.europe-west1.firebasedatabase.app",
+    "project_id": "uno-stack-2by2",
+    "storage_bucket": "uno-stack-2by2.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:35506012542:android:8a0c40cd6594d0c5def32f",
+        "android_client_info": {
+          "package_name": "com.example.uno_stack_game"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCf5-cagibXsBZxwKHoIfPWgmzOIAxQD0A"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
