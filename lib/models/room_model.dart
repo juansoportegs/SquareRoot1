@@ -31,6 +31,7 @@ class ChatMessage {
 class Player {
   final String id;
   final String name;
+  final String photoUrl;
   final List<GameCard> hand;
   final bool isHost;
   final bool hasSaidUno;
@@ -39,6 +40,7 @@ class Player {
     required this.id,
     required this.name,
     required this.hand,
+    this.photoUrl = '',
     this.isHost = false,
     this.hasSaidUno = false,
   });
@@ -46,6 +48,7 @@ class Player {
   Map<String, dynamic> toJson() => {
         'id': id,
         'name': name,
+        'photoUrl': photoUrl,
         'hand': hand.map((c) => c.toJson()).toList(),
         'isHost': isHost,
         'hasSaidUno': hasSaidUno,
@@ -60,6 +63,7 @@ class Player {
     return Player(
       id: json['id'] ?? '',
       name: json['name'] ?? '',
+      photoUrl: json['photoUrl'] ?? '',
       hand: loadedHand,
       isHost: json['isHost'] ?? false,
       hasSaidUno: json['hasSaidUno'] ?? false,

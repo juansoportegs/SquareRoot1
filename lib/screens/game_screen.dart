@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_database/firebase_database.dart';
 import '../models/card_model.dart';
@@ -30,6 +31,7 @@ class _GameScreenState extends State<GameScreen> {
   late final DatabaseReference _dbRef;
   late final String _cleanRoomCode;
   late String _playerId;
+  String _myPhotoUrl = '';
   GameRoom? _currentRoom;
   bool _isLoading = true;
   String? _errorMessage;
@@ -42,6 +44,7 @@ class _GameScreenState extends State<GameScreen> {
   bool _rematchTimerRunning = false;
   int _rematchSecondsRemaining = 30;
   bool _isLeavingRoom = false;
+  bool _isRestarting = false;
 
   bool _hasDrawnThisTurn = false;
   int? _lastTurnIndex;
@@ -77,6 +80,7 @@ class _GameScreenState extends State<GameScreen> {
     super.initState();
     _cleanRoomCode = widget.roomCode.trim().toUpperCase();
     _playerId = DateTime.now().millisecondsSinceEpoch.toString();
+    _myPhotoUrl = FirebaseAuth.instance.currentUser?.photoURL ?? '';
 
     _dbRef = FirebaseDatabase.instanceFor(
       app: Firebase.app(),
@@ -106,6 +110,7 @@ class _GameScreenState extends State<GameScreen> {
         final hostPlayer = Player(
           id: _playerId,
           name: widget.playerName,
+          photoUrl: _myPhotoUrl,
           hand: [],
           isHost: true,
           hasSaidUno: false,
@@ -139,6 +144,7 @@ class _GameScreenState extends State<GameScreen> {
             updatedPlayers.add(Player(
               id: _playerId,
               name: widget.playerName,
+              photoUrl: _myPhotoUrl,
               hand: [],
               isHost: false,
               hasSaidUno: false,
@@ -359,6 +365,7 @@ class _GameScreenState extends State<GameScreen> {
       players[players.indexOf(player)] = Player(
         id: player.id,
         name: player.name,
+        photoUrl: player.photoUrl,
         hand: hand,
         isHost: player.isHost,
         hasSaidUno: false,
@@ -399,13 +406,20 @@ class _GameScreenState extends State<GameScreen> {
   }
 
   Future<void> _requestRematch() async {
+    if (_isRestarting || _isLeavingRoom) return;
+    _isRestarting = true;
     _rematchTimer?.cancel();
+    _rematchTimer = null;
     setState(() {
       _rematchTimerRunning = false;
       _rematchSecondsRemaining = 30;
       _hasDrawnThisTurn = false;
     });
-    await _startGame();
+    try {
+      await _startGame();
+    } finally {
+      _isRestarting = false;
+    }
   }
 
   Future<void> _voteRematch() async {
@@ -518,7 +532,7 @@ class _GameScreenState extends State<GameScreen> {
     if (_currentRoom == null) return;
 
     if (targetPlayer.hand.length != 1 || targetPlayer.hasSaidUno) {
-      showUnoBubble('¡Acusación inválida! Ya cantó o no tiene 1 carta.', color: Colors.red);
+      showUnoBubble('¡Ya gritó UNO!!', color: Colors.red);
       return;
     }
 
@@ -591,7 +605,7 @@ class _GameScreenState extends State<GameScreen> {
           color: Colors.orange,
         );
       } else {
-        showUnoBubble('¡Acusación inválida! Ya cantó o no tiene 1 carta.', color: Colors.red);
+        showUnoBubble('¡Ya gritó UNO!!', color: Colors.red);
       }
     } catch (_) {
       if (!mounted) return;
@@ -1204,14 +1218,9 @@ class _GameScreenState extends State<GameScreen> {
       ),
       body: Container(
         decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [
-              Color(0xFF1B1B2F),
-              Color(0xFF162447),
-              Color(0xFF1F4068),
-            ],
+          image: DecorationImage(
+            image: AssetImage('assets/tapetegamescreen.png'),
+            fit: BoxFit.cover,
           ),
         ),
         child: _errorMessage != null
@@ -1271,15 +1280,17 @@ class _GameScreenState extends State<GameScreen> {
                       }
                     });
                   } else {
-                    if (_rematchTimerRunning || _rematchTimer != null) {
-                      _rematchTimer?.cancel();
-                      if (mounted) {
+                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                      if (!mounted) return;
+                      if (_rematchTimerRunning || _rematchTimer != null) {
+                        _rematchTimer?.cancel();
+                        _rematchTimer = null;
                         setState(() {
                           _rematchTimerRunning = false;
                           _rematchSecondsRemaining = 30;
                         });
                       }
-                    }
+                    });
                     WidgetsBinding.instance.addPostFrameCallback((_) {
                       if (!mounted) return;
                       _checkUnoState(_currentRoom!.players);
@@ -1345,7 +1356,12 @@ class _GameScreenState extends State<GameScreen> {
                     child: ListTile(
                       leading: CircleAvatar(
                         backgroundColor: Colors.amber,
-                        child: Text(player.name[0].toUpperCase(), style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+                        backgroundImage: player.photoUrl.isNotEmpty
+                            ? NetworkImage(player.photoUrl)
+                            : null,
+                        child: player.photoUrl.isNotEmpty
+                            ? null
+                            : Text(player.name[0].toUpperCase(), style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
                       ),
                       title: Text(player.name, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
                       trailing: player.isHost
@@ -1368,11 +1384,12 @@ class _GameScreenState extends State<GameScreen> {
                 onPressed: _showInviteModal,
                 icon: const Icon(Icons.share, color: Colors.amber),
                 label: const Text(
-                  'INVITAR AMIGO POR CORREO',
+                  'INVITAR AMIGO',
                   style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.amber),
                 ),
                 style: OutlinedButton.styleFrom(
                   side: const BorderSide(color: Colors.amber),
+                  backgroundColor: Colors.black.withValues(alpha: 0.5),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12),
                   ),
@@ -1389,7 +1406,9 @@ class _GameScreenState extends State<GameScreen> {
                 onPressed: _currentRoom!.players.length >= 2 ? _startGame : null,
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.redAccent,
+                  disabledBackgroundColor: Colors.black.withValues(alpha: 0.6),
                   foregroundColor: Colors.white,
+                  disabledForegroundColor: Colors.white70,
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                 ),
                 child: Text(
@@ -1455,7 +1474,7 @@ class _GameScreenState extends State<GameScreen> {
             padding: const EdgeInsets.symmetric(vertical: 4),
             color: Colors.red.shade900,
             child: Text(
-              '¡ACUMULADO DE ROBO: +${_currentRoom!.pendingDrawCount}!',
+              '¡Cartas a robar: ${_currentRoom!.pendingDrawCount}!',
               textAlign: TextAlign.center,
               style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white, fontSize: 12),
             ),
@@ -1470,14 +1489,14 @@ class _GameScreenState extends State<GameScreen> {
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 Text(
-                  '¡TIENES 1 CARTA! Canta UNO en: ${_unoSecondsRemaining}s',
+                  '¡TE QUEDA 1! Canta UNO en: ${_unoSecondsRemaining}s',
                   style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white, fontSize: 12),
                 ),
                 const SizedBox(width: 15),
                 ElevatedButton(
                   onPressed: _pressUnoButton,
                   style: ElevatedButton.styleFrom(backgroundColor: Colors.red, padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2)),
-                  child: const Text('¡UNO!'),
+                  child: const Text('¡UNO!!!'),
                 ),
               ],
             ),
@@ -1513,7 +1532,7 @@ class _GameScreenState extends State<GameScreen> {
                         child: Container(
                           padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                           decoration: BoxDecoration(color: Colors.purple, borderRadius: BorderRadius.circular(6)),
-                          child: const Text('¡ACUSAR!', style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
+                          child: const Text('¡ROBA DOS!!!', style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
                         ),
                       ),
                     ]
@@ -1592,8 +1611,8 @@ class _GameScreenState extends State<GameScreen> {
                 icon: const Icon(Icons.info_outline, size: 18, color: Colors.white),
                 label: Text(
                   hasPlayableCard && !_hasDrawnThisTurn
-                      ? 'DEBES JUGAR CARTA'
-                      : (!_hasDrawnThisTurn ? 'DEBES ROBAR CARTA' : 'PASAR TURNO'),
+                      ? 'PUEDES JUGAR'
+                      : (!_hasDrawnThisTurn ? 'TIENES QUE ROBAR' : 'PASAR'),
                   style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.white),
                 ),
               ),
@@ -1610,7 +1629,7 @@ class _GameScreenState extends State<GameScreen> {
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Text(
-                '¡Pulsa en ROBAR para comerte las ${_currentRoom!.pendingDrawCount} cartas!',
+                '¡A ROBAR, no te libras de las ${_currentRoom!.pendingDrawCount} cartas!!',
                 textAlign: TextAlign.center,
                 style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
               ),
