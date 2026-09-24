@@ -80,6 +80,7 @@ class GameRoom {
   final bool isClockwise;
   final Map<String, int> scores;
   final List<ChatMessage> messages;
+  final List<String> rematchReady;
 
   GameRoom({
     required this.code,
@@ -94,6 +95,7 @@ class GameRoom {
     required this.isClockwise,
     required this.scores,
     this.messages = const [],
+    this.rematchReady = const [],
   });
 
   Map<String, dynamic> toJson() => {
@@ -109,6 +111,7 @@ class GameRoom {
         'isClockwise': isClockwise,
         'scores': scores,
         'messages': messages.map((m) => m.toJson()).toList(),
+        'rematchReady': rematchReady,
       };
 
   factory GameRoom.fromJson(Map<dynamic, dynamic> json) {
@@ -137,6 +140,9 @@ class GameRoom {
         .map((m) => ChatMessage.fromJson(Map<dynamic, dynamic>.from(m)))
         .toList();
 
+    var rawRematch = json['rematchReady'] as List<dynamic>? ?? [];
+    List<String> loadedRematch = rawRematch.map((e) => e.toString()).toList();
+
     GameStatus parsedStatus = GameStatus.waiting;
     if (json['status'] == 'playing') parsedStatus = GameStatus.playing;
     if (json['status'] == 'finished') parsedStatus = GameStatus.finished;
@@ -159,6 +165,7 @@ class GameRoom {
       isClockwise: json['isClockwise'] ?? true,
       scores: loadedScores,
       messages: loadedMessages,
+      rematchReady: loadedRematch,
     );
   }
 }

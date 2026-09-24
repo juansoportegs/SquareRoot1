@@ -37,7 +37,11 @@ class _GameScreenState extends State<GameScreen> {
   Timer? _unoTimer;
   int _unoSecondsRemaining = 10;
   int _accusedDrawnCount = 2;
-  bool _hasShownWinDialog = false;
+
+  Timer? _rematchTimer;
+  bool _rematchTimerRunning = false;
+  int _rematchSecondsRemaining = 30;
+  bool _isLeavingRoom = false;
 
   bool _hasDrawnThisTurn = false;
   int? _lastTurnIndex;
@@ -86,6 +90,7 @@ class _GameScreenState extends State<GameScreen> {
   void dispose() {
     _chatController.dispose();
     _unoTimer?.cancel();
+    _rematchTimer?.cancel();
     _currentBubble?.remove();
     super.dispose();
   }
@@ -386,18 +391,62 @@ class _GameScreenState extends State<GameScreen> {
       pendingDrawCount: 0,
       isClockwise: true,
       scores: _currentRoom!.scores,
-      messages: [],
+      messages: _currentRoom!.messages,
+      rematchReady: [],
     );
 
     await _dbRef.child(_cleanRoomCode).set(updatedRoom.toJson());
   }
 
   Future<void> _requestRematch() async {
+    _rematchTimer?.cancel();
     setState(() {
-      _hasShownWinDialog = false;
+      _rematchTimerRunning = false;
+      _rematchSecondsRemaining = 30;
       _hasDrawnThisTurn = false;
     });
     await _startGame();
+  }
+
+  Future<void> _voteRematch() async {
+    if (_currentRoom == null) return;
+    final roomRef = _dbRef.child(_cleanRoomCode);
+    await roomRef.child('rematchReady').runTransaction((current) {
+      List<String> ids = current is List
+          ? List<String>.from(current.map((e) => e.toString()))
+          : <String>[];
+      if (!ids.contains(_playerId)) ids.add(_playerId);
+      return Transaction.success(ids);
+    });
+  }
+
+  void _startRematchCountdown() {
+    if (_rematchTimerRunning) return;
+    setState(() {
+      _rematchTimerRunning = true;
+      _rematchSecondsRemaining = 30;
+    });
+    _rematchTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) return;
+      setState(() {
+        _rematchSecondsRemaining--;
+      });
+      if (_rematchSecondsRemaining <= 0) {
+        timer.cancel();
+        _rematchTimerRunning = false;
+        _deleteRoom();
+      }
+    });
+  }
+
+  Future<void> _deleteRoom() async {
+    if (_isLeavingRoom) return;
+    _isLeavingRoom = true;
+    _rematchTimer?.cancel();
+    await _dbRef.child(_cleanRoomCode).remove();
+    if (mounted && Navigator.canPop(context)) {
+      Navigator.pop(context);
+    }
   }
 
   void _checkUnoState(List<Player> players) {
@@ -520,6 +569,7 @@ class _GameScreenState extends State<GameScreen> {
           isClockwise: currentRoom.isClockwise,
           scores: currentRoom.scores,
           messages: currentRoom.messages,
+          rematchReady: currentRoom.rematchReady,
         );
 
         _accusedDrawnCount = drawn;
@@ -668,6 +718,7 @@ class _GameScreenState extends State<GameScreen> {
       isClockwise: _currentRoom!.isClockwise,
       scores: _currentRoom!.scores,
       messages: _currentRoom!.messages,
+      rematchReady: _currentRoom!.rematchReady,
     );
 
     await _dbRef.child(_cleanRoomCode).set(updatedRoom.toJson());
@@ -761,6 +812,7 @@ class _GameScreenState extends State<GameScreen> {
       isClockwise: newIsClockwise,
       scores: scores,
       messages: _currentRoom!.messages,
+      rematchReady: _currentRoom!.rematchReady,
     );
 
     await _dbRef.child(_cleanRoomCode).set(updatedRoom.toJson());
@@ -832,6 +884,7 @@ class _GameScreenState extends State<GameScreen> {
       isClockwise: _currentRoom!.isClockwise,
       scores: _currentRoom!.scores,
       messages: _currentRoom!.messages,
+      rematchReady: _currentRoom!.rematchReady,
     );
 
     await _dbRef.child(_cleanRoomCode).set(updatedRoom.toJson());
@@ -875,6 +928,7 @@ class _GameScreenState extends State<GameScreen> {
       isClockwise: _currentRoom!.isClockwise,
       scores: _currentRoom!.scores,
       messages: _currentRoom!.messages,
+      rematchReady: _currentRoom!.rematchReady,
     );
 
     await _dbRef.child(_cleanRoomCode).set(updatedRoom.toJson());
@@ -965,11 +1019,10 @@ class _GameScreenState extends State<GameScreen> {
                   isClockwise: _currentRoom!.isClockwise,
                   scores: _currentRoom!.scores,
                   messages: _currentRoom!.messages,
+                  rematchReady: _currentRoom!.rematchReady,
                 );
                 await _dbRef.child(_cleanRoomCode).set(updatedRoom.toJson());
               }
-              if (!mounted) return;
-              Navigator.pop(context);
             },
             style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
             child: const Text('FINALIZAR', style: TextStyle(color: Colors.white)),
@@ -1020,27 +1073,38 @@ class _GameScreenState extends State<GameScreen> {
     );
   }
 
-  void _showGameOverDialog(String winnerName, bool isWinner) {
-    if (_hasShownWinDialog) return;
-    _hasShownWinDialog = true;
+  Widget _buildGameOverUI() {
+    final room = _currentRoom!;
+    final winner = room.players.firstWhere(
+      (p) => p.hand.isEmpty,
+      orElse: () => room.players.first,
+    );
+    final isWinner = winner.id == _playerId;
 
-    int myWins = _currentRoom?.scores[_playerId] ?? 0;
+    int myWins = room.scores[_playerId] ?? 0;
     int rivalWins = 0;
-    _currentRoom?.scores.forEach((id, score) {
+    room.scores.forEach((id, score) {
       if (id != _playerId) rivalWins = score;
     });
 
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (dialogContext) => AlertDialog(
-        backgroundColor: const Color(0xFF1B1B2F),
-        title: Text(isWinner ? '🎉 ¡VICTORIA! 🎉' : '😢 ¡DERROTA! 😢', textAlign: TextAlign.center, style: const TextStyle(color: Colors.white)),
-        content: Column(
+    final iVoted = room.rematchReady.contains(_playerId);
+    final allReady = room.players.isNotEmpty &&
+        room.players.every((p) => room.rematchReady.contains(p.id));
+
+    return Center(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(24),
+        child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             Text(
-              isWinner ? '¡Has ganado la partida!' : '$winnerName se ha llevado la victoria.',
+              isWinner ? '🎉 ¡VICTORIA! 🎉' : '😢 ¡DERROTA! 😢',
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: Colors.white, fontSize: 32, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              isWinner ? '¡Has ganado la partida!' : '${winner.name} se ha llevado la victoria.',
               textAlign: TextAlign.center,
               style: const TextStyle(fontSize: 16, color: Colors.white70),
             ),
@@ -1050,32 +1114,57 @@ class _GameScreenState extends State<GameScreen> {
               textAlign: TextAlign.center,
               style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.amber),
             ),
-          ],
-        ),
-        actions: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: [
-              TextButton(
-                onPressed: () {
-                  Navigator.pop(dialogContext);
-                  if (Navigator.canPop(context)) {
-                    Navigator.pop(context);
-                  }
-                },
-                child: const Text('SALIR', style: TextStyle(color: Colors.white60)),
+            const SizedBox(height: 24),
+            if (allReady)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 8),
+                child: Text(
+                  '¡Todos confirmaron la revancha! Reiniciando...',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: Colors.greenAccent, fontWeight: FontWeight.bold),
+                ),
+              )
+            else ...[
+              Text(
+                iVoted
+                    ? 'Esperando a que el rival confirme la revancha...'
+                    : '¿Quieres una revancha? Ambos debéis confirmar.',
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: Colors.white70),
               ),
-              ElevatedButton(
-                onPressed: () {
-                  Navigator.pop(dialogContext);
-                  _requestRematch();
-                },
-                style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
-                child: const Text('¡REVANCHA!', style: TextStyle(color: Colors.white)),
+              const SizedBox(height: 8),
+              Text(
+                'La sala se cerrará en $_rematchSecondsRemaining s si no hay acuerdo.',
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: Colors.white38, fontSize: 13),
               ),
             ],
-          ),
-        ],
+            const SizedBox(height: 24),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                OutlinedButton.icon(
+                  onPressed: _deleteRoom,
+                  icon: const Icon(Icons.exit_to_app, color: Colors.white60),
+                  label: const Text('SALIR', style: TextStyle(color: Colors.white60)),
+                ),
+                ElevatedButton(
+                  onPressed: iVoted || allReady ? null : _voteRematch,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.green,
+                    disabledBackgroundColor: Colors.green.withValues(alpha: 0.4),
+                  ),
+                  child: Text(
+                    allReady
+                        ? 'REVANCHA ✓'
+                        : (iVoted ? 'ESPERANDO...' : '¡REVANCHA!'),
+                    style: const TextStyle(color: Colors.white),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -1137,7 +1226,18 @@ class _GameScreenState extends State<GameScreen> {
             : StreamBuilder<DatabaseEvent>(
                 stream: _dbRef.child(_cleanRoomCode).onValue,
                 builder: (context, snapshot) {
-                  if (_isLoading || !snapshot.hasData || snapshot.data?.snapshot.value == null) {
+                  if (_isLoading || !snapshot.hasData) {
+                    return const Center(child: CircularProgressIndicator(color: Colors.amber));
+                  }
+
+                  if (snapshot.data?.snapshot.value == null) {
+                    if (!_isLeavingRoom && _currentRoom != null) {
+                      _isLeavingRoom = true;
+                      WidgetsBinding.instance.addPostFrameCallback((_) {
+                        if (!mounted) return;
+                        Navigator.pop(context);
+                      });
+                    }
                     return const Center(child: CircularProgressIndicator(color: Colors.amber));
                   }
 
@@ -1149,22 +1249,32 @@ class _GameScreenState extends State<GameScreen> {
                     _hasDrawnThisTurn = false;
                   }
 
-                  WidgetsBinding.instance.addPostFrameCallback((_) {
-                    if (!mounted) return;
-                    if (_currentRoom!.status == GameStatus.finished) {
-                      final winner = _currentRoom!.players.firstWhere(
-                        (p) => p.hand.isEmpty,
-                        orElse: () => _currentRoom!.players.first,
-                      );
-                      bool amIWinner = winner.id == _playerId;
-                      _showGameOverDialog(winner.name, amIWinner);
-                    } else {
+                  final isFinished = _currentRoom!.status == GameStatus.finished;
+                  if (isFinished) {
+                    final allReady = _currentRoom!.players.isNotEmpty &&
+                        _currentRoom!.players.every((p) => _currentRoom!.rematchReady.contains(p.id));
+                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                      if (!mounted) return;
+                      if (!_rematchTimerRunning) {
+                        _startRematchCountdown();
+                      }
+                      if (allReady && widget.isHost && !_isLeavingRoom) {
+                        _requestRematch();
+                      }
+                    });
+                  } else {
+                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                      if (!mounted) return;
                       _checkUnoState(_currentRoom!.players);
-                    }
-                  });
+                    });
+                  }
 
                   if (_currentRoom!.status == GameStatus.waiting) {
                     return _buildLobbyUI();
+                  }
+
+                  if (isFinished) {
+                    return _buildGameOverUI();
                   }
 
                   return _buildGameUI();
