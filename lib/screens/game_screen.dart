@@ -45,6 +45,9 @@ class _GameScreenState extends State<GameScreen> {
   int _rematchSecondsRemaining = 30;
   bool _isLeavingRoom = false;
   bool _isRestarting = false;
+  bool _chatMinimized = false;
+  int _lastMessageCount = 0;
+  int _lastShownMessageCount = 0;
 
   bool _hasDrawnThisTurn = false;
   int? _lastTurnIndex;
@@ -198,6 +201,43 @@ class _GameScreenState extends State<GameScreen> {
   }
 
   Widget _buildChatWidget({double height = 170}) {
+    if (_chatMinimized) {
+      return Container(
+        height: 40,
+        decoration: BoxDecoration(
+          color: Colors.black.withValues(alpha: 0.8),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: Colors.amber.withValues(alpha: 0.4),
+            width: 1.5,
+          ),
+        ),
+        child: Row(
+          children: [
+            const SizedBox(width: 12),
+            const Icon(Icons.chat_bubble_outline, size: 16, color: Colors.amber),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                _currentRoom != null && _currentRoom!.messages.length > _lastShownMessageCount
+                    ? 'Chat (nuevo mensaje)'
+                    : 'Chat de la Sala (minimizado)',
+                style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
+              ),
+            ),
+            IconButton(
+              constraints: const BoxConstraints(),
+              padding: const EdgeInsets.all(6),
+              icon: const Icon(Icons.expand_less, color: Colors.amber, size: 22),
+              tooltip: 'Mostrar chat',
+              onPressed: () => setState(() => _chatMinimized = false),
+            ),
+            const SizedBox(width: 4),
+          ],
+        ),
+      );
+    }
+
     return Container(
       height: height,
       decoration: BoxDecoration(
@@ -216,17 +256,28 @@ class _GameScreenState extends State<GameScreen> {
               color: Colors.white.withValues(alpha: 0.12),
               borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
             ),
-            child: const Row(
+            child: Row(
               children: [
-                Icon(Icons.chat_bubble_outline, size: 14, color: Colors.amber),
-                SizedBox(width: 6),
-                Text(
+                const Icon(Icons.chat_bubble_outline, size: 14, color: Colors.amber),
+                const SizedBox(width: 6),
+                const Text(
                   'Chat de la Sala',
                   style: TextStyle(
                     color: Colors.white,
                     fontSize: 12,
                     fontWeight: FontWeight.bold,
                   ),
+                ),
+                const Spacer(),
+                IconButton(
+                  constraints: const BoxConstraints(),
+                  padding: const EdgeInsets.all(2),
+                  icon: const Icon(Icons.expand_more, color: Colors.amber, size: 20),
+                  tooltip: 'Ocultar chat',
+                  onPressed: () => setState(() {
+                    _chatMinimized = true;
+                    _lastShownMessageCount = _currentRoom?.messages.length ?? 0;
+                  }),
                 ),
               ],
             ),
@@ -1223,7 +1274,9 @@ class _GameScreenState extends State<GameScreen> {
             fit: BoxFit.cover,
           ),
         ),
-        child: _errorMessage != null
+        child: SafeArea(
+          top: false,
+          child: _errorMessage != null
             ? Center(
                 child: Padding(
                   padding: const EdgeInsets.all(24.0),
@@ -1260,6 +1313,18 @@ class _GameScreenState extends State<GameScreen> {
 
                   final rawData = Map<String, dynamic>.from(snapshot.data!.snapshot.value as Map);
                   _currentRoom = GameRoom.fromJson(rawData);
+
+                  final msgCount = _currentRoom!.messages.length;
+                  if (msgCount > _lastMessageCount && _chatMinimized) {
+                    final lastMsg = _currentRoom!.messages.last;
+                    if (lastMsg.senderName != widget.playerName) {
+                      WidgetsBinding.instance.addPostFrameCallback((_) {
+                        if (!mounted) return;
+                        setState(() => _chatMinimized = false);
+                      });
+                    }
+                  }
+                  _lastMessageCount = msgCount;
 
                   if (_lastTurnIndex != _currentRoom!.currentTurnIndex) {
                     _lastTurnIndex = _currentRoom!.currentTurnIndex;
@@ -1308,6 +1373,7 @@ class _GameScreenState extends State<GameScreen> {
                   return _buildGameUI();
                 },
               ),
+          ),
       ),
     );
   }
@@ -1637,35 +1703,77 @@ class _GameScreenState extends State<GameScreen> {
           ),
 
         // Mano del jugador (TODAS LAS CARTAS CON EL MISMO BRILLO/OPACIDAD)
-        Padding(
-          padding: const EdgeInsets.fromLTRB(12, 6, 12, 2),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        Container(
+          margin: const EdgeInsets.symmetric(horizontal: 8),
+          padding: const EdgeInsets.fromLTRB(8, 6, 8, 6),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(14),
+            border: isMyTurn
+                ? Border.all(color: Colors.greenAccent, width: 3)
+                : Border.all(color: Colors.white24, width: 1),
+            boxShadow: isMyTurn
+                ? [
+                    BoxShadow(
+                      color: Colors.greenAccent.withValues(alpha: 0.45),
+                      blurRadius: 16,
+                      spreadRadius: 2,
+                    ),
+                  ]
+                : null,
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                'Tu Mano (${myPlayer.hand.length}):',
-                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.white),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'Tu Mano (${myPlayer.hand.length}):',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.bold,
+                      color: isMyTurn ? Colors.greenAccent : Colors.white,
+                    ),
+                  ),
+                  if (isMyTurn)
+                    const Padding(
+                      padding: EdgeInsets.only(right: 4),
+                      child: Text(
+                        '▶ TU TURNO',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.greenAccent,
+                        ),
+                      ),
+                    )
+                  else
+                    Text(
+                      'Turno de: ${currentTurnPlayer.name}',
+                      style: const TextStyle(fontSize: 12, color: Colors.white54),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              SizedBox(
+                height: 115,
+                child: ListView.builder(
+                  scrollDirection: Axis.horizontal,
+                  padding: const EdgeInsets.symmetric(horizontal: 4),
+                  itemCount: myPlayer.hand.length,
+                  itemBuilder: (context, index) {
+                    final card = myPlayer.hand[index];
+                    return GestureDetector(
+                      onTap: isMyTurn ? () => _playCard(card) : null,
+                      child: Padding(
+                        padding: const EdgeInsets.only(right: 6.0),
+                        child: CardWidget(card: card),
+                      ),
+                    );
+                  },
+                ),
               ),
             ],
-          ),
-        ),
-        SizedBox(
-          height: 115,
-          child: ListView.builder(
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-            itemCount: myPlayer.hand.length,
-            itemBuilder: (context, index) {
-              final card = myPlayer.hand[index];
-
-              return GestureDetector(
-                onTap: isMyTurn ? () => _playCard(card) : null,
-                child: Padding(
-                  padding: const EdgeInsets.only(right: 6.0),
-                  child: CardWidget(card: card), // Sin opacidad reducida, todas se ven igual
-                ),
-              );
-            },
           ),
         ),
         const SizedBox(height: 8),
