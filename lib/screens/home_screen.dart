@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'game_screen.dart';
+import 'game_screen_local.dart';
 import '../services/auth_service.dart';
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -498,6 +499,27 @@ class _HomeScreenState extends State<HomeScreen> {
                     ],
                   ),
                 ),
+                const SizedBox(height: 24),
+
+                Container(
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.05),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
+                  ),
+                  child: Column(
+                    children: [
+                      const Text('MODO LOCAL CONTRA IA', style: TextStyle(color: Colors.amber, fontWeight: FontWeight.bold, letterSpacing: 1)),
+                      const SizedBox(height: 12),
+                      Wrap(spacing: 8, runSpacing: 8, alignment: WrapAlignment.center, children: [
+                        _buildLocalButton(context, '1 IA', 1),
+                        _buildLocalButton(context, '2 IA', 2),
+                        _buildLocalButton(context, '3 IA', 3),
+                      ]),
+                    ],
+                  ),
+                ),
 
                 if (currentUser != null) ...[
                   const SizedBox(height: 20),
@@ -535,4 +557,13 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
     );
   }
+
+  Widget _buildLocalButton(BuildContext context, String label, int aiCount) {
+    return ElevatedButton(
+      style: ElevatedButton.styleFrom(backgroundColor: Colors.blue.shade700, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+      onPressed: () { Navigator.push(context, MaterialPageRoute(builder: (context) => GameScreenLocal(aiCount: aiCount))); },
+      child: Text(label, style: const TextStyle(fontWeight: FontWeight.bold)),
+    );
+  }
+
 }
